@@ -1,0 +1,135 @@
+name: Fraud Detection CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  PROJECT_ID: fraud-detection-496415
+  REGION: us-central1
+  BUCKET_NAME: fraud-detection-angygudy-2026
+  REGISTRY: us-central1-docker.pkg.dev
+  IMAGE_NAME: fraud-detection-api
+
+jobs:
+  # ─────────────────────────────────────
+  # JOB 1: Test
+  # ─────────────────────────────────────
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest tests/ -v --cov=src --cov-report=term-missing
+
+      - name: Check coverage
+        run: |
+          coverage=$(pytest tests/ --cov=src --cov-report=term | grep TOTAL | awk '{print $4}' | tr -d '%')
+          echo "Coverage: $coverage%"
+          if [ "$coverage" -lt "70" ]; then
+            echo "❌ Coverage below 70%"
+            exit 1
+          fi
+          echo "✅ Coverage OK"
+
+  # ─────────────────────────────────────
+  # JOB 2: Model Evaluation Gate
+  # ─────────────────────────────────────
+  evaluate:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Run evaluation gate
+        run: |
+          python -c "
+          from src.training.train import evaluate_model
+          metrics = evaluate_model()
+          auc = metrics['auc']
+          print(f'Model AUC: {auc}')
+          if auc < 0.95:
+              print('❌ AUC below threshold (0.95). Blocking deployment.')
+              exit(1)
+          print('✅ AUC gate passed. Proceeding to deploy.')
+          "
+
+  # ─────────────────────────────────────
+  # JOB 3: Build & Push Docker Image
+  # ─────────────────────────────────────
+  build:
+    needs: evaluate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGISTRY }}
+
+      - name: Build Docker image
+        run: |
+          docker build -f docker/Dockerfile \
+            -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.IMAGE_NAME }}:latest \
+            .
+
+      - name: Push Docker image
+        run: |
+          docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.IMAGE_NAME }}:latest
+
+  # ─────────────────────────────────────
+  # JOB 4: Deploy to Vertex AI
+  # ─────────────────────────────────────
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Vertex AI Pipeline
+        run: python src/pipelines/training_pipeline.py
+
+      - name: Notify Success
+        run: |
+          echo "✅ Pipeline submitted to Vertex AI!"
+          echo "Champion/Challenger comparison running..."
+          echo "View at: https://console.cloud.google.com/vertex-ai/pipelines"

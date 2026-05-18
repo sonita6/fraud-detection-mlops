@@ -1,0 +1,31 @@
+gcp:
+  project_id: "fraud-detection-496415"
+  region: "us-central1"
+  bucket_name: "fraud-detection-angygudy-2026"
+
+bigquery:
+  dataset: "fraud_dataset"
+  table: "fraud_results"
+  drift_table: "drift_logs"
+
+pubsub:
+  topic: "transactions"
+  subscription: "fraud-sub"
+
+model:
+  name: "fraud_model.pkl"
+  scaler: "scaler.pkl"
+  gcs_path: "models/"
+  auc_threshold: 0.95
+
+serving:
+  port: 8080
+  threshold: 0.5
+
+mlflow:
+  experiment_name: "fraud-detection"
+  tracking_uri: "sqlite:///mlflow.db"
+
+pipeline:
+  root: "gs://fraud-detection-angygudy-2026/pipeline_runs"
+  endpoint_name: "fraud-detection-endpoint"
