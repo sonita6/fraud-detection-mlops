@@ -40,11 +40,15 @@ def get_train_test_split(df: pd.DataFrame):
     X = df.drop('Class', axis=1)
     y = df['Class']
 
+    # Only stratify if enough samples per class
+    min_class_count = y.value_counts().min()
+    stratify = y if min_class_count >= 2 else None
+
     X_train, X_test, y_train, y_test = train_test_split(
         X, y,
         test_size=0.2,
         random_state=42,
-        stratify=y
+        stratify=stratify
     )
 
     return X_train, X_test, y_train, y_test
