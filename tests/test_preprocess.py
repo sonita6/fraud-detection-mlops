@@ -10,15 +10,31 @@ from src.training.preprocess import preprocess, get_train_test_split, apply_smot
 
 @pytest.fixture
 def sample_df():
-    """Create sample dataframe for testing"""
+    """
+    Create sample dataframe for testing.
+    Need enough fraud cases (Class=1) for stratified split.
+    Minimum 2 fraud cases in test set (20% of total).
+    So we need at least 10 fraud cases total.
+    """
     np.random.seed(42)
-    n = 1000
-    df = pd.DataFrame({
-        **{f'V{i}': np.random.randn(n) for i in range(1, 29)},
-        'Amount': np.random.uniform(0, 1000, n),
-        'Time':   np.random.uniform(0, 172800, n),
-        'Class':  np.random.choice([0, 1], n, p=[0.998, 0.002])
+    n_normal = 950
+    n_fraud  = 50  # enough for stratified split
+
+    normal = pd.DataFrame({
+        **{f'V{i}': np.random.randn(n_normal) for i in range(1, 29)},
+        'Amount': np.random.uniform(0, 1000, n_normal),
+        'Time':   np.random.uniform(0, 172800, n_normal),
+        'Class':  0
     })
+
+    fraud = pd.DataFrame({
+        **{f'V{i}': np.random.randn(n_fraud) for i in range(1, 29)},
+        'Amount': np.random.uniform(0, 1000, n_fraud),
+        'Time':   np.random.uniform(0, 172800, n_fraud),
+        'Class':  1
+    })
+
+    df = pd.concat([normal, fraud]).reset_index(drop=True)
     return df
 
 
